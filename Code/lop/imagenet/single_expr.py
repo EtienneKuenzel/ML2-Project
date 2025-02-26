@@ -152,8 +152,10 @@ if __name__ == '__main__':
     bias_layer = torch.zeros(num_tasks, 2)
     saliency_maps = torch.zeros(num_tasks, 3, 128, 128)  # Example: num_tasks, 3 channels, 128x128 input size
     train_accuracies = torch.zeros((num_tasks, num_epochs), dtype=torch.float)
-
+    test_accuracies = torch.zeros((num_tasks, num_epochs), dtype=torch.float)
+    timetoperformance = torch.zeros(num_tasks)
     # Training loop
+
     for task_idx in range(num_tasks):
         start_time = time.time()
         print("Task : " + str(task_idx))
@@ -163,20 +165,28 @@ if __name__ == '__main__':
         x_test, y_test = x_test.to(dev), y_test.to(dev)
 
         # Training loop
-
         for epoch_idx in range(num_epochs):
             example_order = np.random.permutation(1200)
             x_train, y_train = x_train[example_order], y_train[example_order]
             new_train_accuracies = torch.zeros((int(12),), dtype=torch.float)
+            new_test_accuracies = torch.zeros((int(12),), dtype=torch.float)
             epoch_iter = 0
             for i, start_idx in enumerate(range(0, 1200, mini_batch_size)):
                 batch_x = x_train[start_idx:start_idx + mini_batch_size]
                 batch_y = y_train[start_idx:start_idx + mini_batch_size]
                 loss, network_output = learner.learn(x=batch_x, target=batch_y)
-                with torch.no_grad():
+                with torch.no_grad():#train accuarcy
                     new_train_accuracies[epoch_iter] = accuracy(softmax(network_output, dim=1), batch_y).cpu()
+                with torch.no_grad():#test accuarcy
+                    test_batch_x = x_test[0:200]
+                    test_batch_y = y_test[0:200]
+                    new_test_accuracies[epoch_iter]  = accuracy(F.softmax(net.predict(x=test_batch_x)[0], dim=1), test_batch_y)
                     epoch_iter += 1
-            train_accuracies[task_idx][epoch_idx] = new_train_accuracies.mean()
+            test_accuracies[task_idx][epoch_idx] = new_test_accuracies.mean()
+            train_accuracies[task_idx][epoch_idx] = new_test_accuracies.mean()
+            if new_test_accuracies.mean() > 0.8:
+                timetoperformance[task_idx] = epoch_idx
+                break
 
 
         # Update training time
@@ -194,7 +204,6 @@ if __name__ == '__main__':
             test_batch_x = x_train[start_idx:start_idx + mini_batch_size]
             test_batch_y = y_train[start_idx:start_idx + mini_batch_size]
             network_output, _ = net.predict(x=test_batch_x)
-
         for layer in ["fc1", "fc2"]:
             task_activations[int(task_idx/eval_every_tasks)][0][int(layer[-1]) - 1] = torch.tensor(average_activation_input(activations, layer=layer), dtype=torch.float32)
         for hook in hooks: hook.remove()
@@ -210,12 +219,14 @@ if __name__ == '__main__':
                 test_batch_y = y_test[start_idx:start_idx + mini_batch_size]
                 network_output, _ = net.predict(x=test_batch_x)
                 prev_accuracies[i] = accuracy(F.softmax(network_output, dim=1), test_batch_y)
+                print("A")
             historical_accuracies[task_idx][task_idx-previous_task_idx] = prev_accuracies.mean().item()
-        print(prev_accuracies.mean().item())
     # Final save
     save_data({
         'last100_accuracies' :historical_accuracies.cpu(),
+        'ttp' :timetoperformance.cpu(),
         'train_accuracies': train_accuracies.cpu(),
+        'test_accuracies': test_accuracies.cpu(),
         'time per task'  : training_time/num_tasks, #Training Time
         'task_activations': task_activations.cpu(),
     }, data_file)
