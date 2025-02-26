@@ -218,6 +218,8 @@ if __name__ == '__main__':
             print("--Task : " + str(int(task_idx-previous_task_idx)))
             x_train, y_train, x_test, y_test = load_imagenet(class_order[previous_task_idx * 2:(previous_task_idx + 1) * 2])
             x_train, x_test = x_train.float(), x_test.float()
+            x_train, y_train = x_train.to(dev), y_train.to(dev)
+            x_test, y_test = x_test.to(dev), y_test.to(dev)
             for epoch_idx in range(num_epochs):
                 example_order = np.random.permutation(1200)
                 x_train, y_train = x_train[example_order], y_train[example_order]
