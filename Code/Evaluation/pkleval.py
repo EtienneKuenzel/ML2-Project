@@ -9,17 +9,17 @@ from scipy.ndimage import gaussian_filter1d
 
 # File paths
 file_paths = [
-    'outputRELUfull.pkl',
-    'outputleakyRELU.pkl',
+    #'outputRELUfull.pkl',
+    #'outputleakyRELU.pkl',
     #'outputRELU+up.pkl',
-    'outputRELU+down.pkl',
+    #'outputRELU+down.pkl',
     #'outputPAUfreeze.pkl',
     #'outputPAU.pkl',
     #'outputtanh.pkl',
     #'outputewcpau.pkl',
     #'outputewc0.1.pkl',
     #'outputRELU+cor.pkl',
-    'outputc.pkl'
+    'outputc1.pkl'
 ]
     #'outputtent.pkl']
 #file_paths=["outputewc.pkl"]#,"outputewc1.pkl","outputtest.pkl"]
@@ -47,6 +47,21 @@ for file_path in file_paths:
 
 # Extract historical accuracies
 historical_accuracies = [data["last100_accuracies"].numpy() for data in data_list]
+train_accuracy = [data["train_accuracies"].numpy() for data in data_list]
+train_accuracy = np.array(train_accuracy[0])  # Extract from list
+
+# Plot each row as a separate training curve
+plt.figure(figsize=(10, 5))
+for i, acc in enumerate(train_accuracy):
+    plt.plot(acc, label=f"Run {i+1}")
+
+# Customize the plot
+plt.xlabel("Epochs")
+plt.ylabel("Training Accuracy")
+plt.title("Training Accuracy Over Time")
+plt.legend()
+plt.grid(True)
+plt.show()
 activations = [data['task_activations'].numpy() for data in data_list]
 
 # Plot historical accuracies with smoothing
