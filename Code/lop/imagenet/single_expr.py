@@ -106,12 +106,12 @@ def custom_activation(x):
     return np.where(x > -3, np.maximum(0, x), -x - 3)
 
 if __name__ == '__main__':
-    num_tasks = 1000
+    num_tasks = 2
     use_gpu = 1
     mini_batch_size = 100
     run_idx = 3
     data_file = "outputc1.pkl"
-    num_epochs =  250
+    num_epochs =  50
     eval_every_tasks = 1
     save_folder = data_file + "model"
     # Device setup
@@ -121,7 +121,7 @@ if __name__ == '__main__':
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
     # Initialize network
-    net = ConvNet(activation="test")
+    net = ConvNet(activation="relu")
     #net =ConvNet_PAU()
     #net = ConvNet_TENT()
     #net = MyLinear(input_size=3072, num_outputs=classes_per_task)
@@ -151,6 +151,7 @@ if __name__ == '__main__':
     weight_layer = torch.zeros((num_tasks, 2, 128))
     bias_layer = torch.zeros(num_tasks, 2)
     saliency_maps = torch.zeros(num_tasks, 3, 128, 128)  # Example: num_tasks, 3 channels, 128x128 input size
+    train_accuracies = torch.zeros((num_tasks, num_epochs), dtype=torch.float)
 
     # Training loop
     for task_idx in range(num_tasks):
@@ -166,96 +167,55 @@ if __name__ == '__main__':
         for epoch_idx in range(num_epochs):
             example_order = np.random.permutation(1200)
             x_train, y_train = x_train[example_order], y_train[example_order]
-
+            new_train_accuracies = torch.zeros((int(12),), dtype=torch.float)
+            epoch_iter = 0
             for i, start_idx in enumerate(range(0, 1200, mini_batch_size)):
                 batch_x = x_train[start_idx:start_idx + mini_batch_size]
                 batch_y = y_train[start_idx:start_idx + mini_batch_size]
                 loss, network_output = learner.learn(x=batch_x, target=batch_y)
+                with torch.no_grad():
+                    new_train_accuracies[epoch_iter] = accuracy(softmax(network_output, dim=1), batch_y).cpu()
+                    epoch_iter += 1
+            train_accuracies[task_idx][epoch_idx] = new_train_accuracies.mean()
 
-        #weight_layer[task_idx] = net.layers[-1].weight.data
-        #bias_layer[task_idx] = net.layers[-1].bias.data
-        #learner.update_ewc_penalty(load_imagenet(class_order[task_idx * 2:(task_idx + 1) * 2]))
+
         # Update training time
         training_time += (time.time() - start_time)
+        #Evaluation Current Task Activations
+        activations = {}
+        inputs_to_activations = {}
+        hooks = []
+        for name, layer in net.named_modules():
+            if isinstance(layer, (torch.nn.Linear)): hooks.append(layer.register_forward_hook(get_activation(name)))
+        x_train, y_train, x_test, y_test = load_imagenet(class_order[task_idx * 2:(task_idx + 1) * 2])
+        x_train, x_test = x_train.float(), x_test.float()
+        x_test, y_test = x_test.to(dev), y_test.to(dev)
+        for i, start_idx in enumerate(range(0, x_test.shape[0], mini_batch_size)):
+            test_batch_x = x_train[start_idx:start_idx + mini_batch_size]
+            test_batch_y = y_train[start_idx:start_idx + mini_batch_size]
+            network_output, _ = net.predict(x=test_batch_x)
 
-        #Eval 100 tasks
-        if task_idx%eval_every_tasks ==0:
-            # Current Task Activations
-            activations = {}
-            inputs_to_activations = {}
-            hooks = []
-            for name, layer in net.named_modules():
-                if isinstance(layer, (torch.nn.Linear)): hooks.append(layer.register_forward_hook(get_activation(name)))
-            x_train, y_train, x_test, y_test = load_imagenet(class_order[task_idx * 2:(task_idx + 1) * 2])
+        for layer in ["fc1", "fc2"]:
+            task_activations[int(task_idx/eval_every_tasks)][0][int(layer[-1]) - 1] = torch.tensor(average_activation_input(activations, layer=layer), dtype=torch.float32)
+        for hook in hooks: hook.remove()
+        task_activations = task_activations.cpu()
+
+        for t, previous_task_idx in enumerate(np.arange(max(0, task_idx - 9), task_idx + 1)):
+            x_train, y_train, x_test, y_test = load_imagenet(class_order[previous_task_idx * 2:(previous_task_idx + 1) * 2])
             x_train, x_test = x_train.float(), x_test.float()
             x_test, y_test = x_test.to(dev), y_test.to(dev)
+            prev_accuracies = torch.zeros(x_test.shape[0] // mini_batch_size, dtype=torch.float)
             for i, start_idx in enumerate(range(0, x_test.shape[0], mini_batch_size)):
-                test_batch_x = x_train[start_idx:start_idx + mini_batch_size]
-                test_batch_y = y_train[start_idx:start_idx + mini_batch_size]
+                test_batch_x = x_test[start_idx:start_idx + mini_batch_size]
+                test_batch_y = y_test[start_idx:start_idx + mini_batch_size]
                 network_output, _ = net.predict(x=test_batch_x)
-
-            for layer in ["fc1", "fc2"]:
-                task_activations[int(task_idx/eval_every_tasks)][0][int(layer[-1]) - 1] = torch.tensor(average_activation_input(activations, layer=layer), dtype=torch.float32)
-            for hook in hooks: hook.remove()
-
-            task_activations = task_activations.cpu()
-            for layer_idx, layer_offset in enumerate([-5, -3]):
-                nlist = []
-                target_layer_offset = layer_offset + 2
-                max_weight_old = torch.max(net.layers[target_layer_offset].weight)
-                bias_mean = torch.mean(net.layers[layer_offset].bias.data)
-                bias_std = torch.std(net.layers[layer_offset].bias.data)
-                weight_mean = torch.mean(net.layers[layer_offset].weight.data)
-                weight_std = torch.std(net.layers[layer_offset].weight.data)
-                weight_std1 = torch.std(net.layers[target_layer_offset].weight.data)
-                weight_mean1 = torch.mean(net.layers[target_layer_offset].weight.data)
-
-                for x in range(len(net.layers[layer_offset].weight.data)):
-                    if np.std(np.maximum(0, task_activations[task_idx, 0, layer_idx, x].flatten())) == 0:
-                        init.normal_(net.layers[layer_offset].weight.data[x], mean=weight_mean, std=weight_std)
-                        continue
-                    for y in range(x + 1, len(net.layers[layer_offset].weight.data)):
-                        if x in nlist or y in nlist:
-                            continue
-                        data_x = np.maximum(0, task_activations[task_idx, 0, layer_idx, x].flatten())#custom_activation(task_activations[task_idx, 0, layer_idx, x].flatten())
-                        data_y = np.maximum(0, task_activations[task_idx, 0, layer_idx, y].flatten())#custom_activation(task_activations[task_idx, 0, layer_idx, y].flatten())
-                        if np.std(data_x) ==0 or np.std(data_y)==0:
-                            continue
-                        correlation = np.corrcoef(data_x, data_y)[0, 1]
-                        if correlation > 0.95:  # Maybe replace with top 10% of correlation Merge neurons
-                            for neuron in range(len(net.layers[target_layer_offset].weight.data)):
-                                net.layers[target_layer_offset].weight.data[neuron][x] += (net.layers[target_layer_offset].weight.data[neuron][y] * (np.std(data_x) / np.std(data_y)))
-                                init.normal_(net.layers[target_layer_offset].weight.data[neuron][y], mean=weight_mean1, std=weight_std1)
-
-                            # Reset values of consumed neuron
-                            init.normal_(net.layers[layer_offset].bias.data[y], mean=bias_mean, std=bias_std)
-                            init.normal_(net.layers[layer_offset].weight.data[y], mean=weight_mean, std=weight_std)
-                            nlist.append(y)
-                            nlist.append(x)
-                max_weight_new = torch.max(net.layers[target_layer_offset].weight)
-                net.layers[target_layer_offset].weight.data *= max_weight_old/max_weight_new
-                #print(nlist)
-
-            for t, previous_task_idx in enumerate(np.arange(max(0, task_idx - 9), task_idx + 1)):
-                #net.layers[-1].weight.data = weight_layer[previous_task_idx]
-                #net.layers[-1].bias.data = bias_layer[previous_task_idx]
-                x_train, y_train, x_test, y_test = load_imagenet(class_order[previous_task_idx * 2:(previous_task_idx + 1) * 2])
-                x_train, x_test = x_train.float(), x_test.float()
-                x_test, y_test = x_test.to(dev), y_test.to(dev)
-                prev_accuracies = torch.zeros(x_test.shape[0] // mini_batch_size, dtype=torch.float)
-                for i, start_idx in enumerate(range(0, x_test.shape[0], mini_batch_size)):
-                    test_batch_x = x_test[start_idx:start_idx + mini_batch_size]
-                    test_batch_y = y_test[start_idx:start_idx + mini_batch_size]
-                    network_output, _ = net.predict(x=test_batch_x)
-                    prev_accuracies[i] = accuracy(F.softmax(network_output, dim=1), test_batch_y)
-                historical_accuracies[task_idx][task_idx-previous_task_idx] = prev_accuracies.mean().item()
-            print(prev_accuracies.mean().item())
-            # head reset for new task
-            #net.layers[-1].weight.data.zero_()
-            #net.layers[-1].bias.data.zero_()
+                prev_accuracies[i] = accuracy(F.softmax(network_output, dim=1), test_batch_y)
+            historical_accuracies[task_idx][task_idx-previous_task_idx] = prev_accuracies.mean().item()
+        print(prev_accuracies.mean().item())
     # Final save
     save_data({
         'last100_accuracies' :historical_accuracies.cpu(),
+        'train_accuracies': train_accuracies.cpu(),
         'time per task'  : training_time/num_tasks, #Training Time
         'task_activations': task_activations.cpu(),
     }, data_file)
