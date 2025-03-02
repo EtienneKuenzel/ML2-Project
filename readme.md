@@ -1,4 +1,4 @@
-# 🧠 Machine Learning 2: Experiments on the Plasticity-Stability Dilemma in Continual Learning  
+# Machine Learning 2: Experiments on the Plasticity-Stability Dilemma in Continual Learning  
 
 ## 📌 Problem  
 In our continual learning setup, an agent must sequentially differentiate between two downsampled 32×32 ImageNet classes. The agent has access only to the current task's data, losing it as soon as the next task begins.  
@@ -17,16 +17,12 @@ Our approach is inspired by the idea that long-term and short-term memory exist 
 We construct a **standard artificial neural network (ANN)** with a convolutional network as the front end, followed by fully connected (FC) layers. Instead of applying **uniform backpropagation** across all layers, we introduce a gradual **reduction** in backpropagation’s effect on earlier layers as the network encounters new tasks.  
 
 ### ⚙️ Modified Backpropagation  
-We modify the standard backpropagation formula using a hyperparameter **\( k \in [0,1] \)** and an exponent function **\( f(z, n) \)**, where:  
+We modify the standard backpropagation formula using a hyperparameter **\( k \in [0,1] \)** <br />
+and an exponent function **\( f(z, n) \)**, where:  
 - **\( n \)** is the current task index.  
 - **\( z \)** is the layer index (counted from back to front).  
 
 This enables us to implement **linear, exponential, or other decay functions** in backpropagation.  
-
-\[
-bp_{\text{new}} = bp_{\text{standard}} \cdot k^{f(z, n)}
-\]
-
 where **\( f(z, n) \)** increases with **\( z \)** and **\( n \)**.  
 
 ### 🧠 Intuition  
