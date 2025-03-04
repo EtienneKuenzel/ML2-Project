@@ -1,7 +1,7 @@
 import torch
 import pickle
 from tqdm import tqdm
-from lop.algos.bp import Backprop, EWC_Policy
+from lop.algos.bp import Backprop, EWC_Policy, decreaseBackprop
 from lop.nets.conv_net import ConvNet_PAU, ConvNet_TENT, ConvNet
 from torch.nn.functional import softmax
 from lop.nets.linear import MyLinear
@@ -112,7 +112,7 @@ if __name__ == '__main__':
     mini_batch_size = 100
     run_idx = 3
     data_file = "outputc1.pkl"
-    num_epochs =  500
+    num_epochs =  1
     eval_every_tasks = 1
     save_folder = data_file + "model"
     # Device setup
@@ -128,7 +128,7 @@ if __name__ == '__main__':
     #net = MyLinear(input_size=3072, num_outputs=classes_per_task)
 
     # Initialize learner
-    learner = Backprop(
+    learner = decreaseBackprop(
         net=net,
         step_size=0.01,
         opt="sgd",
@@ -177,7 +177,7 @@ if __name__ == '__main__':
             for i, start_idx in enumerate(range(0, 1200, mini_batch_size)):
                 batch_x = x_train[start_idx:start_idx + mini_batch_size]
                 batch_y = y_train[start_idx:start_idx + mini_batch_size]
-                loss, network_output = learner.learn(x=batch_x, target=batch_y)
+                loss, network_output = learner.learn(x=batch_x, target=batch_y, task=task_idx)
                 with torch.no_grad():#train accuarcy
                     new_train_accuracies[epoch_iter] = accuracy(softmax(network_output, dim=1), batch_y).cpu()
                 with torch.no_grad():#test accuarcy
@@ -228,7 +228,7 @@ if __name__ == '__main__':
                 for i, start_idx in enumerate(range(0, 1200, mini_batch_size)):
                     batch_x = x_train[start_idx:start_idx + mini_batch_size]
                     batch_y = y_train[start_idx:start_idx + mini_batch_size]
-                    loss, network_output = learnercopy.learn(x=batch_x, target=batch_y)
+                    loss, network_output = learnercopy.learn(x=batch_x, target=batch_y, task=task_idx)
                     with torch.no_grad():  # test accuarcy
                         test_batch_x = x_test[0:200]
                         test_batch_y = y_test[0:200]
@@ -244,7 +244,7 @@ if __name__ == '__main__':
         'ttp' :timetoperformance.cpu(),
         'train_accuracies': train_accuracies.cpu(),
         'test_accuracies': test_accuracies.cpu(),
-        'time per task'  : training_time/num_tasks, #Training Time
+        'time per task'  : training_time/num_tasks,
         'task_activations': task_activations.cpu(),
     }, data_file)
 

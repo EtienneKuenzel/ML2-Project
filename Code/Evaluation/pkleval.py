@@ -6,6 +6,49 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import imageio
 from scipy.ndimage import gaussian_filter1d
+import numpy as np
+import matplotlib.pyplot as plt
+import math
+
+# Initial layer scaling settings
+layer_scaling = {
+    "conv1.weight": 0.5,
+    "conv1.bias": 0.5,
+    "conv2.weight": 0.6,
+    "conv2.bias": 0.6,
+    "conv3.weight": 0.7,
+    "conv3.bias": 0.7,
+    "fc1.weight": 0.8,
+    "fc1.bias": 0.8,
+    "fc2.weight": 0.9,
+    "fc2.bias": 0.9,
+    "fc3.weight": 1.0,
+    "fc3.bias": 1.0
+}
+
+# Scaling function applied to each layer
+task = 1000
+# Generate task values from 0 to 1000
+tasks = np.arange(0, 1001)
+
+# Calculate the layer scaling for each task value
+evolving_scaling = {
+    name: scale + (1 - scale) * 1.005**(-tasks)#np.exp(-tasks)
+    for name, scale in layer_scaling.items()
+}
+
+# Plot the results
+plt.figure(figsize=(10, 6))
+
+for name, scaling_values in evolving_scaling.items():
+    plt.plot(tasks, scaling_values, label=name)
+
+plt.title("Layer Scaling Evolution from Task 0 to 1000")
+plt.xlabel("Task")
+plt.ylabel("Scaling Factor")
+plt.legend()
+plt.grid(True)
+plt.show()
 
 # File paths
 file_paths = [
