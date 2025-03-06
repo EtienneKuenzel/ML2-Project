@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import math
 
 # Initial layer scaling settings
-layer_scaling = {
+"""layer_scaling = {
     "conv1.weight": 0.5,
     "conv1.bias": 0.5,
     "conv2.weight": 0.6,
@@ -48,177 +48,113 @@ plt.xlabel("Task")
 plt.ylabel("Scaling Factor")
 plt.legend()
 plt.grid(True)
-plt.show()
-
-# File paths
-file_paths = [
-    #'outputRELUfull.pkl',
-    #'outputleakyRELU.pkl',
-    #'outputRELU+up.pkl',
-    #'outputRELU+down.pkl',
-    #'outputPAUfreeze.pkl',
-    #'outputPAU.pkl',
-    #'outputtanh.pkl',
-    #'outputewcpau.pkl',
-    #'outputewc0.1.pkl',
-    #'outputRELU+cor.pkl',
-    'outputc1.pkl'
-]
-    #'outputtent.pkl']
-#file_paths=["outputewc.pkl"]#,"outputewc1.pkl","outputtest.pkl"]
-labels = ["Relu",
-          "LeakyRelu",
-          'Relu+down',
-        #'Relu+Correlation0.95',
-        'Relu+Correlation0.95+LayerNorm',
-        'EWC0.5',
-        'EWCPAU',
-          'Tent',
-          'LeakyRELU',
-          "RELU+u",
-          "RELU+d"
-          'Pau+freeze',
-          'Pau',
-          'Tanh',
-          'Tent']
-colors = ['blue', 'red', 'green', 'purple', 'pink', "brown", "grey", "orange"]
-
-data_list = []
-for file_path in file_paths:
-    with open(file_path, 'rb') as file:
-        data_list.append(pickle.load(file))
-
-# Extract historical accuracies
-historical_accuracies = [data["last100_accuracies"].numpy() for data in data_list]
-train_accuracy = [data["train_accuracies"].numpy() for data in data_list]
-train_accuracy = np.array(train_accuracy[0])  # Extract from list
-
-# Plot each row as a separate training curve
-plt.figure(figsize=(10, 5))
-for i, acc in enumerate(train_accuracy):
-    plt.plot(acc, label=f"Run {i+1}")
-
-# Customize the plot
-plt.xlabel("Epochs")
-plt.ylabel("Training Accuracy")
-plt.title("Training Accuracy Over Time")
-plt.legend()
-plt.grid(True)
-plt.show()
-activations = [data['task_activations'].numpy() for data in data_list]
-
-# Plot historical accuracies with smoothing
-def moving_average(data, window_size):return np.convolve(data, np.ones(window_size) / window_size, mode='valid')
-
-def pad_with_default(array, length, default=0.5):
-    """Pad the array with the default value to reach the desired length."""
-    if len(array) < length:
-        return np.pad(array, (0, length - len(array)), constant_values=default)
-    return array[:length]
-
-# Example with historical_accuracies
-smoothed_accuracies = [
-    moving_average(
-        pad_with_default([accuracy[x, 0] for x in range(accuracy.shape[0])], 2000),50) for accuracy in historical_accuracies
-]
-
-plt.figure(figsize=(12, 6))
-for smoothed, label, color in zip(smoothed_accuracies, labels, colors):
-    plt.plot(range(len(smoothed)), smoothed, linestyle='-', color=color, label=label)
-
-plt.xlabel("Index")
-plt.ylabel("Accuracy")
-plt.title("Historical Accuracies (Smoothed)")
-plt.ylim(0.5, 1)
-plt.legend()
-plt.grid(True)
-plt.show()
-
+plt.show()"""
+import pickle
+import torch
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-import numpy as np
-import os
-import matplotlib.pyplot as plt
+import imageio
 
-image_files = []
-output_dir = "task_frames"
-num_tasks = len(historical_accuracies[0])
-step = 50  # Interval for averaging
 
-# Generate per-task average accuracy plots
-for task_idx in range(0, num_tasks, step):
-    avg_accuracies = [
-        np.mean(accuracy[max(0, task_idx - step):min(num_tasks, task_idx + step)], axis=0)
-        for accuracy in historical_accuracies
-    ]
+def load_data(file_path):
+    with open(file_path, 'rb') as f:
+        data = pickle.load(f)
+    return data
 
-    plt.figure(figsize=(10, 6))
-    for avg, label, color in zip(avg_accuracies, labels, colors):
-        plt.plot(range(100), avg, marker='o', color=color, label=f'{label}: Task {task_idx}')
 
-    plt.xlim(-1, 9)
-    plt.ylim(0.45, 1)
-    plt.title(f'Average Accuracy Around Task {task_idx}')
-    plt.xlabel('Sub-index within task')
+def analyze_metrics(data):
+    print("--- Evaluation Metrics ---")
+
+    # Time to performance regain (average over 50 tasks)
+    ttp_last100 = data['last100_ttp']
+    print(len(ttp_last100))
+    for x in ttp_last100:
+        print(x[0])
+    avg_ttp_regain = ttp_last100.mean(dim=1).mean().item()
+    print(f"Average Time to Performance Regain: {avg_ttp_regain:.2f}")
+
+    # Time to performance (averaged over tasks)
+    ttp = data['ttp']
+    smoothed_ttp = np.convolve(ttp.numpy(), np.ones(1) / 1, mode='valid')  # Moving average smoothing
+    print(f"Time to performance (smoothed): {smoothed_ttp.mean():.2f} ± {smoothed_ttp.std():.2f}")
+
+    # Train and test accuracies
+    train_accuracies = data['train_accuracies']
+    test_accuracies = data['test_accuracies']
+
+    print(f"Final Train Accuracy: {train_accuracies[:, -1].mean():.2f} ± {train_accuracies[:, -1].std():.2f}")
+    print(f"Final Test Accuracy: {test_accuracies[:, -1].mean():.2f} ± {test_accuracies[:, -1].std():.2f}")
+
+    # Time per task
+    time_per_task = data['time per task']
+    print(f"Average time per task: {time_per_task:.2f} sec")
+
+    return train_accuracies, test_accuracies, smoothed_ttp, time_per_task, ttp_last100
+
+
+def plot_accuracies(train_accuracies, test_accuracies):
+    num_tasks, num_epochs = train_accuracies.shape
+    plt.figure(figsize=(10, 5))
+    for task in range(num_tasks):
+        plt.plot(range(num_epochs), train_accuracies[task], label=f'Train Task {task}')
+        plt.plot(range(num_epochs), test_accuracies[task], label=f'Test Task {task}', linestyle='dashed')
+
+    plt.xlabel('Epochs')
     plt.ylabel('Accuracy')
-    plt.grid(True)
+    plt.title('Train vs Test Accuracy Over Epochs')
     plt.legend()
-
-    image_file = os.path.join(output_dir, f'task_{task_idx}_avg.png')
-    plt.savefig(image_file)
-    plt.close()
-    image_files.append(image_file)
-
-# Compute the average accuracy over the first 55 tasks
-x = 1000
-if num_tasks >= 10:
-    avg_accuracies_55 = [np.mean(accuracy[:x], axis=0) for accuracy in historical_accuracies]
-
-    # Generate and save the new plot
-    plt.figure(figsize=(10, 6))
-    for avg, label, color in zip(avg_accuracies_55, labels, colors):
-        plt.plot(range(100), avg, marker='o', color=color, label=f'{label}')
-
-    plt.xlim(-1, 9)
-    plt.ylim(0.45, 1)
-    plt.title('Overall Average Accuracy')
-    plt.xlabel('Sub-index within task')
-    plt.ylabel('Accuracy')
-    plt.grid(True)
-    plt.legend()
-
-    image_file_55 = os.path.join(output_dir, 'overall_avg_accuracy_first_55_tasks.png')
-    plt.savefig(image_file_55)
-    plt.close()
-    print(f"Saved overall average accuracy plot for the first 55 tasks to {image_file_55}")
+    plt.show()
 
 
-frames = []
-def custom_activation(data):
-    # Apply the custom transformation
-    transformed_data = np.where(data < -3, 0, np.maximum(0, data))
-    return transformed_data
-for i in range(10):#20
-    i*=100
-    plt.figure(figsize=(8, 6))  # Optional: Adjust figure size for better clarity
+def plot_ttp(ttp):
+    plt.figure(figsize=(8, 5))
+    plt.plot(range(len(ttp)), ttp, marker='o', linestyle='-')
+    plt.xlabel('Task')
+    plt.ylabel('Time to Performance')
+    plt.title('Time to Performance per Task (Smoothed)')
+    plt.grid()
+    plt.show()
 
-    for activation, label, color in zip(activations, labels, colors):
-        data = activation[i, 0, 0].flatten()
-        mean_value = np.mean(data)  # Compute the mean
-        sns.kdeplot(data, fill=True, alpha=0.2, label=label, color=color)  # KDE plot
-        plt.axvline(mean_value, linestyle="dashed", color="red", alpha=0.8, linewidth=2, label=f"{label} Mean")  # Mean line
 
-    plt.xlim(-100, 100)
-    plt.ylim(0, 0.5)
-    plt.grid(True)
-    plt.legend()
-    plt.title("Task : " + str(i))
-    filename = f"frame_{i}.png"
-    plt.savefig(filename)
-    frames.append(filename)
-    plt.clf()
-# Create a GIF for activations
-gif_activation_path = "activations.gif"
-with imageio.get_writer(gif_activation_path, mode="I", fps=1) as writer:
-    for frame in frames: writer.append_data(imageio.imread(frame))
+def create_ttp_gif(ttp_last100, filename='ttp_last100.gif'):
+    frames = []
+    num_tasks = ttp_last100.shape[0]
+
+    for task in range(0, num_tasks, 50):  # Averaging over 50 tasks
+        avg_regain_time = ttp_last100[max(0, task - 49):task + 1, :10].mean(dim=0)
+
+        plt.figure(figsize=(8, 5))
+        plt.plot(range(10), avg_regain_time.numpy(), marker='o', linestyle='-')
+        plt.xlabel('Last 9 Tasks')
+        plt.ylabel('Average Regain Time')
+        plt.title(f'Avg Time to Performance Regain - Task {task}')
+        plt.grid()
+        plt.ylim(0, ttp_last100.max())
+
+        # Save frame
+        plt.savefig("temp_frame.png")
+        plt.show()
+        plt.close()
+        frames.append(imageio.imread("temp_frame.png"))
+
+    imageio.mimsave(filename, frames, duration=0.5)
+    print(f"Saved GIF: {filename}")
+
+
+def main():
+    data_file = "outputrelu.pkl"
+    if not os.path.exists(data_file):
+        print(f"Error: {data_file} not found.")
+        return
+
+    data = load_data(data_file)
+    train_accuracies, test_accuracies, ttp, time_per_task, ttp_last100 = analyze_metrics(data)
+    #plot_accuracies(train_accuracies, test_accuracies)
+    plot_ttp(ttp)
+    create_ttp_gif(ttp_last100)
+
+
+if __name__ == "__main__":
+    main()
+

@@ -1,7 +1,7 @@
 import torch
 import pickle
 from tqdm import tqdm
-from lop.algos.bp import Backprop, EWC_Policy, decreaseBackprop
+from lop.algos.bp import Backprop, EWC_Policy
 from lop.nets.conv_net import ConvNet_PAU, ConvNet_TENT, ConvNet
 from torch.nn.functional import softmax
 from lop.nets.linear import MyLinear
@@ -17,45 +17,6 @@ import torch.nn.init as init
 import copy
 
 # Function to display a batch of images
-def show_batch(batch_x, batch_y, num_images_to_show=4, denormalize=False):
-    """
-    Displays a few images from the given batch with their corresponding labels.
-
-    Parameters:
-    - batch_x: Tensor of images (batch_size, channels, height, width)
-    - batch_y: Tensor of labels (batch_size)
-    - num_images_to_show: Number of images to display from the batch (default: 4)
-    - denormalize: Whether to denormalize the image before displaying (default: False)
-    """
-    mean = [0.485, 0.456, 0.406]  # ImageNet mean
-    std = [0.229, 0.224, 0.225]  # ImageNet std
-
-    # Helper function to denormalize
-    def denormalize_image(img):
-        img = img.clone()
-        for i in range(3):  # Assuming RGB images
-            img[i] = img[i] * std[i] + mean[i]
-        return img
-
-    plt.figure(figsize=(12, 6))
-
-    for i in range(min(num_images_to_show, len(batch_x))):
-        img = batch_x[i]
-        label = batch_y[i].item() if batch_y[i].dim() == 0 else batch_y[i].argmax().item()  # Handle one-hot labels
-
-        if denormalize:
-            img = denormalize_image(img)
-
-        # Convert to PIL image for visualization
-        img = T.ToPILImage()(img.cpu())
-
-        plt.subplot(1, num_images_to_show, i + 1)
-        plt.imshow(img)
-        plt.title(f"Label: {label}")
-        plt.axis('off')
-
-    plt.show()
-
 
 def get_activation(name):
     def hook(model, input, output):
@@ -107,12 +68,12 @@ def custom_activation(x):
     return np.where(x > -3, np.maximum(0, x), -x - 3)
 
 if __name__ == '__main__':
-    num_tasks = 5
+    num_tasks = 1000
     use_gpu = 1
     mini_batch_size = 100
     run_idx = 3
-    data_file = "outputc1.pkl"
-    num_epochs =  1
+    data_file = "outputrelu.pkl"
+    num_epochs =  300
     eval_every_tasks = 1
     save_folder = data_file + "model"
     # Device setup
@@ -128,7 +89,7 @@ if __name__ == '__main__':
     #net = MyLinear(input_size=3072, num_outputs=classes_per_task)
 
     # Initialize learner
-    learner = decreaseBackprop(
+    learner = Backprop(
         net=net,
         step_size=0.01,
         opt="sgd",
@@ -155,7 +116,7 @@ if __name__ == '__main__':
     train_accuracies = torch.zeros((num_tasks, num_epochs), dtype=torch.float)
     test_accuracies = torch.zeros((num_tasks, num_epochs), dtype=torch.float)
     timetoperformance = torch.zeros(num_tasks)
-    timetoperformanceregain = torch.ones(num_tasks,100) * num_epochs
+    timetoperformanceregain = torch.ones(num_tasks,10) * num_epochs
 
     # Training loop
 
@@ -166,7 +127,8 @@ if __name__ == '__main__':
         x_train, x_test = x_train.float(), x_test.float()
         x_train, y_train = x_train.to(dev), y_train.to(dev)
         x_test, y_test = x_test.to(dev), y_test.to(dev)
-
+        test_batch_x = x_test[0:200]
+        test_batch_y = y_test[0:200]
         # Training loop
         for epoch_idx in range(num_epochs):
             example_order = np.random.permutation(1200)
@@ -181,15 +143,12 @@ if __name__ == '__main__':
                 with torch.no_grad():#train accuarcy
                     new_train_accuracies[epoch_iter] = accuracy(softmax(network_output, dim=1), batch_y).cpu()
                 with torch.no_grad():#test accuarcy
-                    test_batch_x = x_test[0:200]
-                    test_batch_y = y_test[0:200]
                     new_test_accuracies[epoch_iter]  = accuracy(F.softmax(net.predict(x=test_batch_x)[0], dim=1), test_batch_y)
                     epoch_iter += 1
             test_accuracies[task_idx][epoch_idx] = new_test_accuracies.mean()
             train_accuracies[task_idx][epoch_idx] = new_train_accuracies.mean()
-            if new_test_accuracies.mean() > 0.7:
+            if accuracy(F.softmax(net.predict(x=test_batch_x)[0], dim=1), test_batch_y) > 0.75:
                 timetoperformance[task_idx] = epoch_idx
-                print("--Learntime : " + str(epoch_idx))
                 break
 
 
@@ -215,11 +174,12 @@ if __name__ == '__main__':
 
         for t, previous_task_idx in enumerate(np.arange(max(0, task_idx - 9), task_idx + 1)):
             learnercopy = copy.deepcopy(learner)
-            print("--Task : " + str(int(task_idx-previous_task_idx)))
             x_train, y_train, x_test, y_test = load_imagenet(class_order[previous_task_idx * 2:(previous_task_idx + 1) * 2])
             x_train, x_test = x_train.float(), x_test.float()
             x_train, y_train = x_train.to(dev), y_train.to(dev)
             x_test, y_test = x_test.to(dev), y_test.to(dev)
+            test_batch_x = x_test[0:200]
+            test_batch_y = y_test[0:200]
             for epoch_idx in range(num_epochs):
                 example_order = np.random.permutation(1200)
                 x_train, y_train = x_train[example_order], y_train[example_order]
@@ -229,14 +189,8 @@ if __name__ == '__main__':
                     batch_x = x_train[start_idx:start_idx + mini_batch_size]
                     batch_y = y_train[start_idx:start_idx + mini_batch_size]
                     loss, network_output = learnercopy.learn(x=batch_x, target=batch_y, task=task_idx)
-                    with torch.no_grad():  # test accuarcy
-                        test_batch_x = x_test[0:200]
-                        test_batch_y = y_test[0:200]
-                        new_test_accuracies[epoch_iter] = accuracy(F.softmax(learnercopy.net.predict(x=test_batch_x)[0], dim=1),test_batch_y)
-                        epoch_iter += 1
-                if new_test_accuracies.mean() > 0.7:
+                if accuracy(F.softmax(learnercopy.net.predict(x=test_batch_x)[0], dim=1),test_batch_y) > 0.75:
                     timetoperformanceregain[task_idx][task_idx-previous_task_idx] = epoch_idx
-                    print(epoch_idx)
                     break
     # Final save
     save_data({
