@@ -59,146 +59,170 @@ def load_imagenet(classes=[]):
     return x_train, y_train, x_test, y_test
 
 
-def save_data(data, data_file):
-    with open(data_file, 'wb+') as f:
-        pickle.dump(data, f)
+def save_data(new_data, data_file):
+    # Check if file exists and load existing data
+    if os.path.exists(data_file):
+        with open(data_file, 'rb') as f:
+            try:
+                existing_data = pickle.load(f)
+            except EOFError:
+                existing_data = {}
+    else:
+        existing_data = {}
+
+    # Merge new data
+    for key, value in new_data.items():
+        if key in existing_data:
+            if isinstance(existing_data[key], list):
+                existing_data[key].append(value)
+            else:
+                existing_data[key] = [existing_data[key], value]  # Convert to list if it's a single item
+        else:
+            existing_data[key] = [value]
+
+    # Save updated data back to file
+    with open(data_file, 'wb') as f:
+        pickle.dump(existing_data, f)
 
 
 def custom_activation(x):
     return np.where(x > -3, np.maximum(0, x), -x - 3)
 
 if __name__ == '__main__':
-    num_tasks = 1000
+    num_tasks = 2000
     use_gpu = 1
     mini_batch_size = 100
     run_idx = 3
     data_file = "outputrelu.pkl"
     num_epochs =  300
-    eval_every_tasks = 1
+    eval_every_tasks = 50
     save_folder = data_file + "model"
+    runs=3
     # Device setup
     dev = torch.device("cuda:0") if use_gpu and torch.cuda.is_available() else torch.device("cpu")
     if use_gpu and torch.cuda.is_available():
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
-    # Initialize network
-    net = ConvNet(activation="relu")
-    #net =ConvNet_PAU()
-    #net = ConvNet_TENT()
-    #net = MyLinear(input_size=3072, num_outputs=classes_per_task)
+    for run in range(runs):
+        # Initialize network
+        net = ConvNet(activation="relu")
+        #net =ConvNet_PAU()
+        #net = ConvNet_TENT()
+        #net = MyLinear(input_size=3072, num_outputs=classes_per_task)
 
-    # Initialize learner
-    learner = Backprop(
-        net=net,
-        step_size=0.01,
-        opt="sgd",
-        loss='nll',
-        weight_decay=0,
-        to_perturb=(0 != 0),
-        perturb_scale=0,
-        device=dev,
-        momentum=0.9,
-    )
+        # Initialize learner
+        learner = Backprop(
+            net=net,
+            step_size=0.01,
+            opt="sgd",
+            loss='nll',
+            weight_decay=0,
+            to_perturb=(0 != 0),
+            perturb_scale=0,
+            device=dev,
+            momentum=0.9,
+        )
 
-    # Load class order
-    with open('class_order', 'rb') as f:class_order = pickle.load(f)[run_idx]
+        # Load class order
+        with open('class_order', 'rb') as f:class_order = pickle.load(f)[run_idx]
 
-    class_order = np.concatenate([class_order] * ((2 * num_tasks) // 1000 + 1))
+        class_order = np.concatenate([class_order] * ((2 * num_tasks) // 1000 + 1))
 
-    # Initialize accuracy tracking
-    task_activations = torch.zeros(int(num_tasks/eval_every_tasks),3,3,128, 200)#numtasks, 3=layer, 3=CurrentTask+OOD(Next Task)+Adveserial Attack,100=Datapoints
-    historical_accuracies = torch.zeros(num_tasks, 100)
-    training_time = 0
-    weight_layer = torch.zeros((num_tasks, 2, 128))
-    bias_layer = torch.zeros(num_tasks, 2)
-    saliency_maps = torch.zeros(num_tasks, 3, 128, 128)  # Example: num_tasks, 3 channels, 128x128 input size
-    train_accuracies = torch.zeros((num_tasks, num_epochs), dtype=torch.float)
-    test_accuracies = torch.zeros((num_tasks, num_epochs), dtype=torch.float)
-    timetoperformance = torch.zeros(num_tasks)
-    timetoperformanceregain = torch.ones(num_tasks,10) * num_epochs
+        # Initialize accuracy tracking
+        task_activations = torch.zeros(int(num_tasks/eval_every_tasks),3,3,128, 200)#numtasks, 3=layer, 3=CurrentTask+OOD(Next Task)+Adveserial Attack,100=Datapoints
+        historical_accuracies = torch.zeros(num_tasks, 100)
+        training_time = 0
+        weight_layer = torch.zeros((num_tasks, 2, 128))
+        bias_layer = torch.zeros(num_tasks, 2)
+        saliency_maps = torch.zeros(num_tasks, 3, 128, 128)  # Example: num_tasks, 3 channels, 128x128 input size
+        train_accuracies = torch.zeros((num_tasks, num_epochs), dtype=torch.float)
+        test_accuracies = torch.zeros((num_tasks, num_epochs), dtype=torch.float)
+        timetoperformance = torch.ones(num_tasks) * num_epochs
+        timetoperformanceregain = torch.ones(num_tasks,10) * num_epochs
 
-    # Training loop
-
-    for task_idx in range(num_tasks):
-        start_time = time.time()
-        print("Task : " + str(task_idx))
-        x_train, y_train, x_test, y_test = load_imagenet(class_order[task_idx * 2:(task_idx + 1) * 2])
-        x_train, x_test = x_train.float(), x_test.float()
-        x_train, y_train = x_train.to(dev), y_train.to(dev)
-        x_test, y_test = x_test.to(dev), y_test.to(dev)
-        test_batch_x = x_test[0:200]
-        test_batch_y = y_test[0:200]
         # Training loop
-        for epoch_idx in range(num_epochs):
-            example_order = np.random.permutation(1200)
-            x_train, y_train = x_train[example_order], y_train[example_order]
-            new_train_accuracies = torch.zeros((int(12),), dtype=torch.float)
-            new_test_accuracies = torch.zeros((int(12),), dtype=torch.float)
-            epoch_iter = 0
-            for i, start_idx in enumerate(range(0, 1200, mini_batch_size)):
-                batch_x = x_train[start_idx:start_idx + mini_batch_size]
-                batch_y = y_train[start_idx:start_idx + mini_batch_size]
-                loss, network_output = learner.learn(x=batch_x, target=batch_y, task=task_idx)
-                with torch.no_grad():#train accuarcy
-                    new_train_accuracies[epoch_iter] = accuracy(softmax(network_output, dim=1), batch_y).cpu()
-                with torch.no_grad():#test accuarcy
-                    new_test_accuracies[epoch_iter]  = accuracy(F.softmax(net.predict(x=test_batch_x)[0], dim=1), test_batch_y)
-                    epoch_iter += 1
-            test_accuracies[task_idx][epoch_idx] = new_test_accuracies.mean()
-            train_accuracies[task_idx][epoch_idx] = new_train_accuracies.mean()
-            if accuracy(F.softmax(net.predict(x=test_batch_x)[0], dim=1), test_batch_y) > 0.75:
-                timetoperformance[task_idx] = epoch_idx
-                break
 
-
-        # Update training time
-        training_time += (time.time() - start_time)
-        #Evaluation Current Task Activations
-        activations = {}
-        inputs_to_activations = {}
-        hooks = []
-        for name, layer in net.named_modules():
-            if isinstance(layer, (torch.nn.Linear)): hooks.append(layer.register_forward_hook(get_activation(name)))
-        x_train, y_train, x_test, y_test = load_imagenet(class_order[task_idx * 2:(task_idx + 1) * 2])
-        x_train, x_test = x_train.float(), x_test.float()
-        x_test, y_test = x_test.to(dev), y_test.to(dev)
-        for i, start_idx in enumerate(range(0, x_test.shape[0], mini_batch_size)):
-            test_batch_x = x_train[start_idx:start_idx + mini_batch_size]
-            test_batch_y = y_train[start_idx:start_idx + mini_batch_size]
-            network_output, _ = net.predict(x=test_batch_x)
-        for layer in ["fc1", "fc2"]:
-            task_activations[int(task_idx/eval_every_tasks)][0][int(layer[-1]) - 1] = torch.tensor(average_activation_input(activations, layer=layer), dtype=torch.float32)
-        for hook in hooks: hook.remove()
-        task_activations = task_activations.cpu()
-
-        for t, previous_task_idx in enumerate(np.arange(max(0, task_idx - 9), task_idx + 1)):
-            learnercopy = copy.deepcopy(learner)
-            x_train, y_train, x_test, y_test = load_imagenet(class_order[previous_task_idx * 2:(previous_task_idx + 1) * 2])
+        for task_idx in range(num_tasks):
+            start_time = time.time()
+            print("Task : " + str(task_idx))
+            x_train, y_train, x_test, y_test = load_imagenet(class_order[task_idx * 2:(task_idx + 1) * 2])
             x_train, x_test = x_train.float(), x_test.float()
             x_train, y_train = x_train.to(dev), y_train.to(dev)
             x_test, y_test = x_test.to(dev), y_test.to(dev)
             test_batch_x = x_test[0:200]
             test_batch_y = y_test[0:200]
+            # Training loop
             for epoch_idx in range(num_epochs):
                 example_order = np.random.permutation(1200)
                 x_train, y_train = x_train[example_order], y_train[example_order]
+                new_train_accuracies = torch.zeros((int(12),), dtype=torch.float)
                 new_test_accuracies = torch.zeros((int(12),), dtype=torch.float)
                 epoch_iter = 0
                 for i, start_idx in enumerate(range(0, 1200, mini_batch_size)):
                     batch_x = x_train[start_idx:start_idx + mini_batch_size]
                     batch_y = y_train[start_idx:start_idx + mini_batch_size]
-                    loss, network_output = learnercopy.learn(x=batch_x, target=batch_y, task=task_idx)
-                if accuracy(F.softmax(learnercopy.net.predict(x=test_batch_x)[0], dim=1),test_batch_y) > 0.75:
-                    timetoperformanceregain[task_idx][task_idx-previous_task_idx] = epoch_idx
+                    loss, network_output = learner.learn(x=batch_x, target=batch_y)
+                    with torch.no_grad():#train accuarcy
+                        new_train_accuracies[epoch_iter] = accuracy(softmax(network_output, dim=1), batch_y).cpu()
+                    with torch.no_grad():#test accuarcy
+                        new_test_accuracies[epoch_iter]  = accuracy(F.softmax(net.predict(x=test_batch_x)[0], dim=1), test_batch_y)
+                        epoch_iter += 1
+                test_accuracies[task_idx][epoch_idx] = new_test_accuracies.mean()
+                train_accuracies[task_idx][epoch_idx] = new_train_accuracies.mean()
+                if accuracy(F.softmax(net.predict(x=test_batch_x)[0], dim=1), test_batch_y) > 0.75:
+                    timetoperformance[task_idx] = epoch_idx
                     break
-    # Final save
-    save_data({
-        'last100_ttp' :timetoperformanceregain.cpu(),
-        'ttp' :timetoperformance.cpu(),
-        'train_accuracies': train_accuracies.cpu(),
-        'test_accuracies': test_accuracies.cpu(),
-        'time per task'  : training_time/num_tasks,
-        'task_activations': task_activations.cpu(),
-    }, data_file)
+
+
+            # Update training time
+            training_time += (time.time() - start_time)
+            if task_idx%eval_every_tasks==0:
+                #Evaluation Current Task Activations
+                activations = {}
+                inputs_to_activations = {}
+                hooks = []
+                for name, layer in net.named_modules():
+                    if isinstance(layer, (torch.nn.Linear)): hooks.append(layer.register_forward_hook(get_activation(name)))
+                x_train, y_train, x_test, y_test = load_imagenet(class_order[task_idx * 2:(task_idx + 1) * 2])
+                x_train, x_test = x_train.float(), x_test.float()
+                x_test, y_test = x_test.to(dev), y_test.to(dev)
+                for i, start_idx in enumerate(range(0, x_test.shape[0], mini_batch_size)):
+                    test_batch_x = x_train[start_idx:start_idx + mini_batch_size]
+                    test_batch_y = y_train[start_idx:start_idx + mini_batch_size]
+                    network_output, _ = net.predict(x=test_batch_x)
+                for layer in ["fc1", "fc2"]:
+                    task_activations[int(task_idx/eval_every_tasks)][0][int(layer[-1]) - 1] = torch.tensor(average_activation_input(activations, layer=layer), dtype=torch.float32)
+                for hook in hooks: hook.remove()
+                task_activations = task_activations.cpu()
+
+                for t, previous_task_idx in enumerate(np.arange(max(0, task_idx - 9), task_idx + 1)):
+                    learnercopy = copy.deepcopy(learner)
+                    x_train, y_train, x_test, y_test = load_imagenet(class_order[previous_task_idx * 2:(previous_task_idx + 1) * 2])
+                    x_train, x_test = x_train.float(), x_test.float()
+                    x_train, y_train = x_train.to(dev), y_train.to(dev)
+                    x_test, y_test = x_test.to(dev), y_test.to(dev)
+                    test_batch_x = x_test[0:200]
+                    test_batch_y = y_test[0:200]
+                    for epoch_idx in range(num_epochs):
+                        example_order = np.random.permutation(1200)
+                        x_train, y_train = x_train[example_order], y_train[example_order]
+                        new_test_accuracies = torch.zeros((int(12),), dtype=torch.float)
+                        epoch_iter = 0
+                        for i, start_idx in enumerate(range(0, 1200, mini_batch_size)):
+                            batch_x = x_train[start_idx:start_idx + mini_batch_size]
+                            batch_y = y_train[start_idx:start_idx + mini_batch_size]
+                            loss, network_output = learnercopy.learn(x=batch_x, target=batch_y)
+                        if accuracy(F.softmax(learnercopy.net.predict(x=test_batch_x)[0], dim=1),test_batch_y) > 0.75:
+                            timetoperformanceregain[task_idx][task_idx-previous_task_idx] = epoch_idx
+                            break
+        # Final save
+        save_data({
+            'last100_ttp' :timetoperformanceregain.cpu(),
+            'ttp' :timetoperformance.cpu(),
+            'train_accuracies': train_accuracies.cpu(),
+            'test_accuracies': test_accuracies.cpu(),
+            'time per task'  : training_time/num_tasks,
+            'task_activations': task_activations.cpu(),
+        }, data_file)
 
