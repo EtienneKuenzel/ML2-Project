@@ -93,11 +93,12 @@ if __name__ == '__main__':
     use_gpu = 1
     mini_batch_size = 100
     run_idx = 3
-    data_file = "outputrelu.pkl"
+    data_file = "outputreludownswap.pkl"
     num_epochs =  300
     eval_every_tasks = 50
     save_folder = data_file + "model"
     runs=3
+    labelswapping = True
     # Device setup
     dev = torch.device("cuda:0") if use_gpu and torch.cuda.is_available() else torch.device("cpu")
     if use_gpu and torch.cuda.is_available():
@@ -106,7 +107,7 @@ if __name__ == '__main__':
         os.makedirs(save_folder)
     for run in range(runs):
         # Initialize network
-        net = ConvNet(activation="relu")
+        net = ConvNet(activation="test")
         #net =ConvNet_PAU()
         #net = ConvNet_TENT()
         #net = MyLinear(input_size=3072, num_outputs=classes_per_task)
@@ -144,15 +145,18 @@ if __name__ == '__main__':
         # Training loop
 
         for task_idx in range(num_tasks):
+            print(training_time)
             start_time = time.time()
             print("Task : " + str(task_idx))
             x_train, y_train, x_test, y_test = load_imagenet(class_order[task_idx * 2:(task_idx + 1) * 2])
             x_train, x_test = x_train.float(), x_test.float()
             x_train, y_train = x_train.to(dev), y_train.to(dev)
             x_test, y_test = x_test.to(dev), y_test.to(dev)
-            test_batch_x = x_test[0:200]
-            test_batch_y = y_test[0:200]
             # Training loop
+            if labelswapping:
+                if accuracy(F.softmax(net.predict(x=x_test)[0], dim=1), y_test) < 0.5:
+                    y_train = 1 - y_train
+                    y_test = 1 - y_test
             for epoch_idx in range(num_epochs):
                 example_order = np.random.permutation(1200)
                 x_train, y_train = x_train[example_order], y_train[example_order]
@@ -166,11 +170,11 @@ if __name__ == '__main__':
                     with torch.no_grad():#train accuarcy
                         new_train_accuracies[epoch_iter] = accuracy(softmax(network_output, dim=1), batch_y).cpu()
                     with torch.no_grad():#test accuarcy
-                        new_test_accuracies[epoch_iter]  = accuracy(F.softmax(net.predict(x=test_batch_x)[0], dim=1), test_batch_y)
+                        new_test_accuracies[epoch_iter]  = accuracy(F.softmax(net.predict(x=x_test)[0], dim=1), y_test)
                         epoch_iter += 1
                 test_accuracies[task_idx][epoch_idx] = new_test_accuracies.mean()
                 train_accuracies[task_idx][epoch_idx] = new_train_accuracies.mean()
-                if accuracy(F.softmax(net.predict(x=test_batch_x)[0], dim=1), test_batch_y) > 0.75:
+                if accuracy(F.softmax(net.predict(x=x_test)[0], dim=1), y_test) > 0.75:
                     timetoperformance[task_idx] = epoch_idx
                     break
 
@@ -187,10 +191,7 @@ if __name__ == '__main__':
                 x_train, y_train, x_test, y_test = load_imagenet(class_order[task_idx * 2:(task_idx + 1) * 2])
                 x_train, x_test = x_train.float(), x_test.float()
                 x_test, y_test = x_test.to(dev), y_test.to(dev)
-                for i, start_idx in enumerate(range(0, x_test.shape[0], mini_batch_size)):
-                    test_batch_x = x_train[start_idx:start_idx + mini_batch_size]
-                    test_batch_y = y_train[start_idx:start_idx + mini_batch_size]
-                    network_output, _ = net.predict(x=test_batch_x)
+                network_output, _ = net.predict(x=x_test)
                 for layer in ["fc1", "fc2"]:
                     task_activations[int(task_idx/eval_every_tasks)][0][int(layer[-1]) - 1] = torch.tensor(average_activation_input(activations, layer=layer), dtype=torch.float32)
                 for hook in hooks: hook.remove()
@@ -202,8 +203,10 @@ if __name__ == '__main__':
                     x_train, x_test = x_train.float(), x_test.float()
                     x_train, y_train = x_train.to(dev), y_train.to(dev)
                     x_test, y_test = x_test.to(dev), y_test.to(dev)
-                    test_batch_x = x_test[0:200]
-                    test_batch_y = y_test[0:200]
+                    if labelswapping:
+                        if accuracy(F.softmax(net.predict(x=x_test)[0], dim=1), y_test) < 0.5:
+                            y_train = 1 - y_train
+                            y_test = 1 - y_test
                     for epoch_idx in range(num_epochs):
                         example_order = np.random.permutation(1200)
                         x_train, y_train = x_train[example_order], y_train[example_order]
@@ -213,7 +216,7 @@ if __name__ == '__main__':
                             batch_x = x_train[start_idx:start_idx + mini_batch_size]
                             batch_y = y_train[start_idx:start_idx + mini_batch_size]
                             loss, network_output = learnercopy.learn(x=batch_x, target=batch_y)
-                        if accuracy(F.softmax(learnercopy.net.predict(x=test_batch_x)[0], dim=1),test_batch_y) > 0.75:
+                        if accuracy(F.softmax(learnercopy.net.predict(x=x_test)[0], dim=1), y_test) > 0.75:
                             timetoperformanceregain[task_idx][task_idx-previous_task_idx] = epoch_idx
                             break
         # Final save

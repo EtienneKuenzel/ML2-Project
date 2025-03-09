@@ -25,8 +25,6 @@ class Backprop(object):
 
 
     def learn(self, x, target):
-        for name, param in self.net.named_parameters():
-            print(name, param.shape)
         self.opt.zero_grad()
         output, features = self.net.predict(x=x)
         loss = self.loss_func(output, target.long())
