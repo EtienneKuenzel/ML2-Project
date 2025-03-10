@@ -1,7 +1,7 @@
 import torch
 import pickle
 from tqdm import tqdm
-from lop.algos.bp import Backprop, EWC_Policy
+from lop.algos.bp2 import decreaseBackprop, EWC_Policy
 from lop.nets.conv_net import ConvNet_PAU, ConvNet_TENT, ConvNet
 from torch.nn.functional import softmax
 from lop.nets.linear import MyLinear
@@ -93,7 +93,7 @@ if __name__ == '__main__':
     use_gpu = 1
     mini_batch_size = 100
     run_idx = 3
-    data_file = "outputreludownswap.pkl"
+    data_file = "outputreludownswapdecrease.pkl"
     num_epochs =  300
     eval_every_tasks = 50
     save_folder = data_file + "model"
@@ -113,7 +113,7 @@ if __name__ == '__main__':
         #net = MyLinear(input_size=3072, num_outputs=classes_per_task)
 
         # Initialize learner
-        learner = Backprop(
+        learner = decreaseBackprop(
             net=net,
             step_size=0.01,
             opt="sgd",
@@ -166,7 +166,7 @@ if __name__ == '__main__':
                 for i, start_idx in enumerate(range(0, 1200, mini_batch_size)):
                     batch_x = x_train[start_idx:start_idx + mini_batch_size]
                     batch_y = y_train[start_idx:start_idx + mini_batch_size]
-                    loss, network_output = learner.learn(x=batch_x, target=batch_y)
+                    loss, network_output = learner.learn(x=batch_x, target=batch_y, task=task_idx)
                     with torch.no_grad():#train accuarcy
                         new_train_accuracies[epoch_iter] = accuracy(softmax(network_output, dim=1), batch_y).cpu()
                     with torch.no_grad():#test accuarcy
@@ -215,7 +215,7 @@ if __name__ == '__main__':
                         for i, start_idx in enumerate(range(0, 1200, mini_batch_size)):
                             batch_x = x_train[start_idx:start_idx + mini_batch_size]
                             batch_y = y_train[start_idx:start_idx + mini_batch_size]
-                            loss, network_output = learnercopy.learn(x=batch_x, target=batch_y)
+                            loss, network_output = learnercopy.learn(x=batch_x, target=batch_y, task=task_idx)
                         if accuracy(F.softmax(learnercopy.net.predict(x=x_test)[0], dim=1), y_test) > 0.75:
                             timetoperformanceregain[task_idx][task_idx-previous_task_idx] = epoch_idx
                             break
