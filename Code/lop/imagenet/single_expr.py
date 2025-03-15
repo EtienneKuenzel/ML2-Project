@@ -1,7 +1,7 @@
 import torch
 import pickle
 from tqdm import tqdm
-from lop.algos.bp2 import decreaseBackprop, EWC_Policy
+from lop.algos.bp2 import Backprop,decreaseBackprop, EWC_Policy
 from lop.nets.conv_net import ConvNet_PAU, ConvNet_TENT, ConvNet
 from torch.nn.functional import softmax
 from lop.nets.linear import MyLinear
@@ -93,12 +93,12 @@ if __name__ == '__main__':
     use_gpu = 1
     mini_batch_size = 100
     run_idx = 3
-    data_file = "outputreludownswapdecrease.pkl"
+    data_file = "outputreludown.pkl"
     num_epochs =  300
-    eval_every_tasks = 50
+    eval_every_tasks = 1999
     save_folder = data_file + "model"
-    runs=3
-    labelswapping = True
+    runs=1
+    labelswapping = False
     # Device setup
     dev = torch.device("cuda:0") if use_gpu and torch.cuda.is_available() else torch.device("cpu")
     if use_gpu and torch.cuda.is_available():
@@ -113,7 +113,7 @@ if __name__ == '__main__':
         #net = MyLinear(input_size=3072, num_outputs=classes_per_task)
 
         # Initialize learner
-        learner = decreaseBackprop(
+        learner = Backprop(
             net=net,
             step_size=0.01,
             opt="sgd",
@@ -145,7 +145,6 @@ if __name__ == '__main__':
         # Training loop
 
         for task_idx in range(num_tasks):
-            print(training_time)
             start_time = time.time()
             print("Task : " + str(task_idx))
             x_train, y_train, x_test, y_test = load_imagenet(class_order[task_idx * 2:(task_idx + 1) * 2])
@@ -166,7 +165,7 @@ if __name__ == '__main__':
                 for i, start_idx in enumerate(range(0, 1200, mini_batch_size)):
                     batch_x = x_train[start_idx:start_idx + mini_batch_size]
                     batch_y = y_train[start_idx:start_idx + mini_batch_size]
-                    loss, network_output = learner.learn(x=batch_x, target=batch_y, task=task_idx)
+                    loss, network_output = learner.learn(x=batch_x, target=batch_y)#, task=task_idx)
                     with torch.no_grad():#train accuarcy
                         new_train_accuracies[epoch_iter] = accuracy(softmax(network_output, dim=1), batch_y).cpu()
                     with torch.no_grad():#test accuarcy
@@ -174,11 +173,12 @@ if __name__ == '__main__':
                         epoch_iter += 1
                 test_accuracies[task_idx][epoch_idx] = new_test_accuracies.mean()
                 train_accuracies[task_idx][epoch_idx] = new_train_accuracies.mean()
-                if accuracy(F.softmax(net.predict(x=x_test)[0], dim=1), y_test) > 0.75:
+                if new_test_accuracies.mean() > 0.75:
                     timetoperformance[task_idx] = epoch_idx
                     break
 
-
+            weight_layer[task_idx] = net.layers[-1].weight.data
+            bias_layer[task_idx] = net.layers[-1].bias.data
             # Update training time
             training_time += (time.time() - start_time)
             if task_idx%eval_every_tasks==0:
@@ -188,23 +188,21 @@ if __name__ == '__main__':
                 hooks = []
                 for name, layer in net.named_modules():
                     if isinstance(layer, (torch.nn.Linear)): hooks.append(layer.register_forward_hook(get_activation(name)))
-                x_train, y_train, x_test, y_test = load_imagenet(class_order[task_idx * 2:(task_idx + 1) * 2])
-                x_train, x_test = x_train.float(), x_test.float()
-                x_test, y_test = x_test.to(dev), y_test.to(dev)
                 network_output, _ = net.predict(x=x_test)
                 for layer in ["fc1", "fc2"]:
                     task_activations[int(task_idx/eval_every_tasks)][0][int(layer[-1]) - 1] = torch.tensor(average_activation_input(activations, layer=layer), dtype=torch.float32)
                 for hook in hooks: hook.remove()
-                task_activations = task_activations.cpu()
 
                 for t, previous_task_idx in enumerate(np.arange(max(0, task_idx - 9), task_idx + 1)):
                     learnercopy = copy.deepcopy(learner)
+                    learnercopy.net.layers[-1].weight.data = weight_layer[previous_task_idx]
+                    learnercopy.net.layers[-1].bias.data = bias_layer[previous_task_idx]
                     x_train, y_train, x_test, y_test = load_imagenet(class_order[previous_task_idx * 2:(previous_task_idx + 1) * 2])
                     x_train, x_test = x_train.float(), x_test.float()
                     x_train, y_train = x_train.to(dev), y_train.to(dev)
                     x_test, y_test = x_test.to(dev), y_test.to(dev)
                     if labelswapping:
-                        if accuracy(F.softmax(net.predict(x=x_test)[0], dim=1), y_test) < 0.5:
+                        if accuracy(F.softmax(learnercopy.net.predict(x=x_test)[0], dim=1), y_test) < 0.5:
                             y_train = 1 - y_train
                             y_test = 1 - y_test
                     for epoch_idx in range(num_epochs):
@@ -215,10 +213,13 @@ if __name__ == '__main__':
                         for i, start_idx in enumerate(range(0, 1200, mini_batch_size)):
                             batch_x = x_train[start_idx:start_idx + mini_batch_size]
                             batch_y = y_train[start_idx:start_idx + mini_batch_size]
-                            loss, network_output = learnercopy.learn(x=batch_x, target=batch_y, task=task_idx)
+                            loss, network_output = learnercopy.learn(x=batch_x, target=batch_y)#, task=task_idx)
                         if accuracy(F.softmax(learnercopy.net.predict(x=x_test)[0], dim=1), y_test) > 0.75:
                             timetoperformanceregain[task_idx][task_idx-previous_task_idx] = epoch_idx
                             break
+            # head reset for new task
+            net.layers[-1].weight.data.zero_()
+            net.layers[-1].bias.data.zero_()
         # Final save
         save_data({
             'last100_ttp' :timetoperformanceregain.cpu(),
