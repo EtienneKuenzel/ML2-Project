@@ -8,11 +8,11 @@ import matplotlib.pyplot as plt
 
 # Define initial layer scaling values
 layer_scaling = {
-    "conv1": 0.5,
-    "conv2": 0.6,
-    "conv3": 0.7,
-    "fc1": 0.8,
-    "fc2": 0.9,
+    "conv1": 0.75,
+    "conv2": 0.8,
+    "conv3": 0.85,
+    "fc1": 0.9,
+    "fc2": 0.95,
     "fc3": 1.0
 }
 
@@ -47,7 +47,7 @@ import matplotlib.pyplot as plt
 
 def plot_average_ttp(file_paths, window_size=500, selected_indices=[0]):
     all_ttp_values = []
-    labels = ['Relu+down',"Relu+down+decrease", "Relu+down(Convolutions locked)", "Relu+down(FC locked)"]
+    labels = ['Relu+down',"Relu+down+decrease 0.05","Relu+down+decrease 0.10", "Relu+down+decrease 0.15", "Relu+down(Convolutions locked)", "Relu+down(FC locked)"]
     colors = ['r', 'b', 'g', 'brown', 'pink', "purple", "r"]
 
     for file_path in file_paths:
@@ -66,8 +66,12 @@ def plot_average_ttp(file_paths, window_size=500, selected_indices=[0]):
 
         # Ensure first point starts at zero
         ttp_values_smoothed -= ttp_values_smoothed[0]
+        if label == "Relu+down(FC locked)":
+            plt.plot(ttp_values_smoothed+109, linestyle='-', color=color, label=label)
+        else:
+            plt.plot(ttp_values_smoothed+51, linestyle='-', color=color, label=label)
 
-        plt.plot(ttp_values_smoothed+51, linestyle='-', color=color, label=label)
+
 
     plt.xlabel('Task')
     plt.ylabel('Epochs to Reach 85% Accuracy')
@@ -141,9 +145,10 @@ def activation(filepaths):
         with open(file_path, 'rb') as file:
             data_list.append(pickle.load(file))
     activations = [data['task_activations'] for data in data_list]
-    labels = ["Relu+down","Relu+down+swap", "Relu+down+decrease", "Relu+down+decrease+swap"]
+    labels = ["Relu+down (FC Locked)",]
     colors = ["red","blue","green", "brown", "pink"]
     for activation, label, color in zip(activations, labels, colors):
+        print(label)
         frames =[]
         for i in range(200):#20
             #i*=50
@@ -152,7 +157,6 @@ def activation(filepaths):
             mean_value = np.mean(data.cpu().numpy())  # Convert tensor to NumPy before computing mean
             sns.kdeplot(data, fill=True, alpha=0.2, label=label, color="blue")  # KDE plot
             plt.axvline(mean_value, linestyle="dashed", color="red", alpha=0.8, linewidth=2, label=f"{label} Mean")  # Mean line
-            print(data)
             plt.xlim(-20, 20)
             plt.ylim(0, 0.5)
             plt.grid(True)
@@ -191,12 +195,13 @@ def test_performance(filepaths):
     plt.show()
 if __name__ == "__main__":
     file_paths = [
-        #"outputrelu85.pkl",
-        "outputreludown85.pkl",
-        "outputreludowndecrease85.pkl",
-        "outputreludowndecreaselock85.pkl",
-        "outputreludowndecreaselockreverse85.pkl",
-        "outputreludowndecreaselockfaster85.pkl"
+        "reludown.pkl",
+        "reludown+decrease0.05.pkl",
+        "reludown+decrease0.1.pkl",
+        "reludown+decrease0.15.pkl",
+        #"reludown+decrease+swap.pkl",
+        "reludown+lock.pkl",
+        "reludown+lockr.pkl"
     ]  # Add both files
     plot_average_ttp(file_paths)
     test_performance(file_paths)
