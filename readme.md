@@ -3,7 +3,7 @@
 ## 📌 Problem  
 In our continual learning setup, an agent must sequentially differentiate between two downsampled 32×32 ImageNet classes. The agent has access only to the current task's data, losing it as soon as the next task begins.  
 <p float="left">
-  <img src="images\readme\cl_problem.png" width="99%" />
+  <img src="images\readme\cl_problem.jpg" width="99%" />
 </p>
 
 ## 📊 Evaluation  
