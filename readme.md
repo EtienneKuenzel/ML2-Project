@@ -2,6 +2,9 @@
 
 ## 📌 Problem  
 In our continual learning setup, an agent must sequentially differentiate between two downsampled 32×32 ImageNet classes. The agent has access only to the current task's data, losing it as soon as the next task begins.  
+<p float="left">
+  <img src="\images\readme\cl_problem.png" width="99%" />
+</p>
 
 ## 📊 Evaluation  
 Traditionally, stability is measured by evaluating an agent's performance on Task *m* after training on Task *n* (where *n > m*). However, I propose a different approach:  
@@ -29,6 +32,10 @@ where **\( f(z, n) \)** increases with **\( z \)** and **\( n \)**.
 This approach **mimics human memory** by allowing:  
 ✅ **Earlier layers** to capture general, frequently occurring patterns (long-term memory).  
 ✅ **Later layers** to remain adaptable and flexible for task-specific details (short-term memory).  
+<p float="left">
+  <img src="Evaluation\images\Baselines_Curriculum_Completions.png" width="49%" />
+  <img src="Evaluation\images\Baselines_Curriculum_Scores.png" width="49%" />
+</p>
 
 ## 📈 Results  
 📌 *To be added...*  
