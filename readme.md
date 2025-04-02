@@ -17,7 +17,7 @@ This approach aligns with how humans retain, recall, and acquire knowledge. Huma
 ## 🏗 ReLU+Down Activation Function  
 This activation function aims to prevent the loss of plasticity in continual learning that our model experiences when utilizing the standard ReLU activation function. ReLU+Down achieves this by being more expressive and maintaining a gradient even in the negative region.  
 <p float="left">
-  <img src="images/readme/relu+down.png" width="66%" />
+  <img src="images/readme/Relu+down.png" width="66%" />
 </p>
 
 ## 🏗 Decreasing Backpropagation  
@@ -33,7 +33,7 @@ This approach is inspired by the idea that long-term and short-term memory exist
 ## 🏗 Label Swapping  
 This approach attempts to stack the local minima in the loss landscape by swapping the labels when accuracy is below 0.5 (1/label count).  
 <p float="left">
-  <img src="images/readme/labelswapping.png" width="66%" />
+  <img src="images/readme/labelswapping.JPG" width="66%" />
 </p>
 
 ## 📈 Results  
