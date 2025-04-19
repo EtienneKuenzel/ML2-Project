@@ -10,7 +10,7 @@ In our continual learning setup, an agent must sequentially differentiate betwee
 Traditionally, stability is measured by evaluating an agent's performance on Task *m* after training on Task *n* (where *n > m*), and plasticity by the performance after *x* number of epochs with ongoing tasks. However, I propose a different approach:  
 
 🔹 **Measuring stability based on the number of epochs required to relearn Task *m*** rather than just assessing its retention.  
-🔹 **Measuring plasticity as the number of epochs required to learn a new task to a certain performance level.**  
+🔹 **Measuring plasticity as the number of epochs required to learn a new task to a certain performance level.** rather than its performance after a set amount of epochs.  
 
 This approach aligns with how humans retain, recall, and acquire knowledge. Humans tend to remember tasks better when they are repeated closer to the initial learning period. However, as time passes without repetition, knowledge fades, requiring more effort to relearn.
 
